@@ -7,6 +7,12 @@ public struct GameplayTag : IEquatable<GameplayTag>, ISerializationCallbackRecei
    public readonly string Name => m_Name ?? string.Empty;
    public readonly bool IsEmpty => string.IsNullOrEmpty(m_Name);
 
+   public readonly GameplayTag Parent =>
+      GameplayTagManager.TryGetMetadata(this, out GameplayTagMetadata metadata) ? metadata.Parent : default;
+
+   public readonly GameplayTagChildren Children =>
+      GameplayTagManager.TryGetMetadata(this, out GameplayTagMetadata metadata) ? metadata.Children : default;
+
    [SerializeField]
    private string m_Name;
 

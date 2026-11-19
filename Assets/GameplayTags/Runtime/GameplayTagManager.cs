@@ -1,24 +1,31 @@
-using System;
 using System.Collections.Generic;
 
 public static class GameplayTagManager
 {
-   private static readonly Dictionary<GameplayTag, GameplayTagMetadata> s_Registry = BuildRegistry();
+   private static readonly GameplayTagRegistry s_Registry = new();
+   private static bool s_SourcesLoaded;
 
    public static GameplayTag GetTag(string name)
    {
       if (TryGetTag(name, out GameplayTag tag))
          return tag;
 
-      throw new KeyNotFoundException($"Gameplay tag '{name}' is not registered.");
+      throw new KeyNotFoundException($"Gameplay tag '{name}' is not registered by a source.");
    }
 
    public static bool TryGetTag(string name, out GameplayTag tag)
    {
-      if (!string.IsNullOrEmpty(name) && s_Registry.TryGetValue(new GameplayTag(name), out GameplayTagMetadata metadata))
+      if (!string.IsNullOrEmpty(name))
       {
-         tag = metadata.Tag;
-         return true;
+         Initialize();
+         lock (s_Registry)
+         {
+            if (s_Registry.TryGetRegistered(new GameplayTag(name), out GameplayTagMetadata metadata))
+            {
+               tag = metadata.Tag;
+               return true;
+            }
+         }
       }
 
       tag = default;
@@ -27,63 +34,50 @@ public static class GameplayTagManager
 
    public static GameplayTagMetadata GetMetadata(GameplayTag tag)
    {
-      return s_Registry[tag];
+      if (TryGetMetadata(tag, out GameplayTagMetadata metadata))
+         return metadata;
+
+      throw new KeyNotFoundException($"Gameplay tag '{tag.Name}' is unknown.");
    }
 
-   private static Dictionary<GameplayTag, GameplayTagMetadata> BuildRegistry()
+   public static bool TryGetMetadata(GameplayTag tag, out GameplayTagMetadata metadata)
    {
-      SortedDictionary<string, string> declarations = new(StringComparer.Ordinal);
-      AddDeclaration(declarations, "Damage.Fire", "Damage dealt by fire.");
-      AddDeclaration(declarations, "Status.Buff.SuddenDeath", "Allows the Warrior's next Execute regardless of the target's health.");
-      AddDeclaration(declarations, "Status.Mark.Flux", "Marks a target for Ryze's Overload interactions.");
-
-      Dictionary<GameplayTag, GameplayTagMetadata> registry = new(declarations.Count);
-      foreach (KeyValuePair<string, string> declaration in declarations)
-      {
-         GameplayTag tag = new(declaration.Key);
-         int lastDot = tag.Name.LastIndexOf('.');
-         GameplayTag parent = lastDot < 0 ? default : new GameplayTag(tag.Name[..lastDot]);
-         GameplayTagMetadata metadata = new(tag, parent, declaration.Value);
-         registry.Add(tag, metadata);
-
-         // Ordinal order puts every parent before its children.
-         if (!parent.IsEmpty)
-            registry[parent].AddChild(tag);
-      }
-
-      return registry;
+      lock (s_Registry)
+         return s_Registry.TryGetMetadata(tag, out metadata);
    }
 
-   private static void AddDeclaration(SortedDictionary<string, string> declarations, string name, string comment)
+   /// <summary>Copies the tags confirmed by the sources loaded so far, including their ancestors.</summary>
+   public static GameplayTag[] GetRegisteredTags()
    {
-      if (string.IsNullOrEmpty(name) || name[0] == '.' || name[^1] == '.' || name.Contains(".."))
-         throw new ArgumentException($"Gameplay tag '{name}' must contain nonempty segments separated by dots.", nameof(name));
+      lock (s_Registry)
+         return s_Registry.GetRegisteredTags();
+   }
 
-      foreach (char character in name)
-      {
-         if (char.IsWhiteSpace(character))
-            throw new ArgumentException($"Gameplay tag '{name}' must not contain whitespace.", nameof(name));
-      }
+   /// <summary>Copies the recovered names that have not yet been confirmed by a source.</summary>
+   public static GameplayTag[] GetTemporaryTags()
+   {
+      lock (s_Registry)
+         return s_Registry.GetTemporaryTags();
+   }
 
-      comment ??= string.Empty;
-      if (!declarations.TryGetValue(name, out string existingComment) || string.IsNullOrEmpty(existingComment))
-      {
-         declarations[name] = comment;
-      }
-      else if (comment.Length > 0 && !string.Equals(comment, existingComment, StringComparison.Ordinal))
-      {
-         throw new InvalidOperationException($"Gameplay tag '{name}' has conflicting developer comments.");
-      }
+   // Unity may deserialize a container on a loading thread. This path only accesses managed data.
+   internal static bool TryRegisterSerializedTag(string name, out GameplayTag tag)
+   {
+      lock (s_Registry)
+         return s_Registry.TryRegisterSerializedTag(name, out tag);
+   }
 
-      int dot = name.LastIndexOf('.');
-      while (dot >= 0)
+   private static void Initialize()
+   {
+      lock (s_Registry)
       {
-         name = name[..dot];
-         if (declarations.ContainsKey(name))
-            break;
+         if (s_SourcesLoaded)
+            return;
 
-         declarations.Add(name, null);
-         dot = name.LastIndexOf('.');
+         s_Registry.RegisterSourceTag("Damage.Fire", "Damage dealt by fire.");
+         s_Registry.RegisterSourceTag("Status.Buff.SuddenDeath", "Allows the Warrior's next Execute regardless of the target's health.");
+         s_Registry.RegisterSourceTag("Status.Mark.Flux", "Marks a target for Ryze's Overload interactions.");
+         s_SourcesLoaded = true;
       }
    }
 }
