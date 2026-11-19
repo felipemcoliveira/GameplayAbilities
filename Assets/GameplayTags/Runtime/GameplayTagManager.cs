@@ -41,6 +41,15 @@ public static class GameplayTagManager
       return Registry[tag];
    }
 
+   public static bool TryGetMetadata(GameplayTag tag, out GameplayTagMetadata metadata)
+   {
+      if (!tag.IsEmpty)
+         return Registry.TryGetValue(tag, out metadata);
+
+      metadata = null;
+      return false;
+   }
+
    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
    private static void ResetRegistry()
    {

@@ -8,6 +8,8 @@ public sealed class GameplayTagMetadata
    public bool IsExplicit { get; }
    public string Comment { get; }
 
+   internal GameplayTagChildren ChildView => new(m_Children);
+
    private readonly List<GameplayTag> m_Children = new();
 
    internal GameplayTagMetadata(GameplayTag tag, GameplayTag parent, string declarationComment)
