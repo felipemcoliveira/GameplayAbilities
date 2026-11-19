@@ -4,7 +4,14 @@ using UnityEngine;
 
 public static class GameplayTagManager
 {
-   private static Dictionary<GameplayTag, GameplayTagMetadata> Registry => s_Registry ??= BuildRegistry();
+   private static Dictionary<GameplayTag, GameplayTagMetadata> Registry
+   {
+      get
+      {
+         Initialize();
+         return s_Registry;
+      }
+   }
 
    private const string k_LibraryPath = "GameplayTags";
    private static Dictionary<GameplayTag, GameplayTagMetadata> s_Registry;
@@ -40,16 +47,35 @@ public static class GameplayTagManager
       s_Registry = null;
    }
 
-   private static Dictionary<GameplayTag, GameplayTagMetadata> BuildRegistry()
+   [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+   private static void Initialize()
    {
+      if (s_Registry != null)
+         return;
+
       SortedDictionary<string, string> declarations = new(StringComparer.Ordinal);
+      IReadOnlyList<NativeGameplayTagSource.Binding> bindings = NativeGameplayTagSource.Discover();
+      foreach (NativeGameplayTagSource.Binding binding in bindings)
+         AddDeclaration(declarations, binding.Name, binding.Comment);
+
       foreach (GameplayTagLibrary library in Resources.LoadAll<GameplayTagLibrary>(k_LibraryPath))
       {
          foreach (GameplayTagLibrary.Entry entry in library.Entries)
             AddDeclaration(declarations, entry.Name, entry.Comment);
       }
 
-      return BuildHierarchy(declarations);
+      // Make the complete hierarchy available if an annotated setter queries the manager.
+      s_Registry = BuildHierarchy(declarations);
+      try
+      {
+         foreach (NativeGameplayTagSource.Binding binding in bindings)
+            binding.Assign(GetTag(binding.Name));
+      }
+      catch
+      {
+         s_Registry = null;
+         throw;
+      }
    }
 
    private static Dictionary<GameplayTag, GameplayTagMetadata> BuildHierarchy(SortedDictionary<string, string> declarations)
