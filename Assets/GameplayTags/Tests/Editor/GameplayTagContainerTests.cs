@@ -9,13 +9,13 @@ public sealed class GameplayTagContainerTests
    private GameplayTag m_Fire;
 
    [SetUp]
-   public void ResolveExampleTags()
+   public void ReadNativeTags()
    {
-      m_Flux = GameplayTagManager.GetTag("Status.Mark.Flux");
-      m_Mark = GameplayTagManager.GetTag("Status.Mark");
-      m_SuddenDeath = GameplayTagManager.GetTag("Status.Buff.SuddenDeath");
-      m_Status = GameplayTagManager.GetTag("Status");
-      m_Fire = GameplayTagManager.GetTag("Damage.Fire");
+      m_Flux = GameplayTagTestTags.Flux;
+      m_Mark = GameplayTagTestTags.Mark;
+      m_SuddenDeath = GameplayTagTestTags.SuddenDeath;
+      m_Status = GameplayTagTestTags.Status;
+      m_Fire = GameplayTagTestTags.Fire;
    }
 
    [Test]

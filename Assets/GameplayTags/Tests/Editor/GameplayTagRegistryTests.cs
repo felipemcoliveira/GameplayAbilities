@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using NUnit.Framework;
+using static GameplayTagTestTags;
 
 public sealed class GameplayTagRegistryTests
 {
@@ -26,13 +27,15 @@ public sealed class GameplayTagRegistryTests
    public void SourceDeclarationRegistersTheLeafAndItsDirectAncestry()
    {
       GameplayTagRegistry registry = new();
-      GameplayTag root = new("Status");
-      GameplayTag parent = new("Status.Mark");
-      GameplayTag leaf = new("Status.Mark.Flux");
+      GameplayTag root = new("Tests");
+      GameplayTag fixtureRoot = new("Tests.GameplayTags");
+      GameplayTag status = new(k_StatusName);
+      GameplayTag parent = new(k_MarkName);
+      GameplayTag leaf = new(k_FluxName);
 
       registry.RegisterSourceTag(leaf.Name, "Applied by Spell Flux.");
 
-      Assert.That(registry.GetRegisteredTags(), Is.EqualTo(new[] { root, parent, leaf }));
+      Assert.That(registry.GetRegisteredTags(), Is.EqualTo(new[] { root, fixtureRoot, status, parent, leaf }));
       Assert.That(registry.GetTemporaryTags(), Is.Empty);
       Assert.That(registry.TryGetRegistered(leaf, out GameplayTagMetadata leafMetadata), Is.True);
       Assert.That(leafMetadata.IsExplicit, Is.True);
@@ -40,32 +43,36 @@ public sealed class GameplayTagRegistryTests
       Assert.That(leafMetadata.Children.Count, Is.Zero);
       Assert.That(registry.TryGetRegistered(parent, out GameplayTagMetadata parentMetadata), Is.True);
       Assert.That(parentMetadata.IsExplicit, Is.False);
-      Assert.That(parentMetadata.Parent, Is.EqualTo(root));
+      Assert.That(parentMetadata.Parent, Is.EqualTo(status));
       Assert.That(parentMetadata.Children.Count, Is.EqualTo(1));
       Assert.That(parentMetadata.Children[0], Is.EqualTo(leaf));
+      Assert.That(registry.TryGetRegistered(status, out GameplayTagMetadata statusMetadata), Is.True);
+      Assert.That(statusMetadata.Parent, Is.EqualTo(fixtureRoot));
       Assert.That(registry.TryGetRegistered(root, out GameplayTagMetadata rootMetadata), Is.True);
       Assert.That(rootMetadata.Parent.IsEmpty, Is.True);
-      Assert.That(rootMetadata.Children[0], Is.EqualTo(parent));
+      Assert.That(rootMetadata.Children[0], Is.EqualTo(fixtureRoot));
    }
 
    [Test]
    public void ConfirmingOneRecoveredTagPromotesItsAncestorsButLeavesItsSiblingTemporary()
    {
       GameplayTagRegistry registry = new();
-      Assert.That(registry.TryRegisterSerializedTag("Status.Mark.Flux", out GameplayTag flux), Is.True);
-      Assert.That(registry.TryRegisterSerializedTag("Status.Mark.Retired", out GameplayTag retired), Is.True);
-      GameplayTag parent = new("Status.Mark");
-      GameplayTag root = new("Status");
+      Assert.That(registry.TryRegisterSerializedTag(k_FluxName, out GameplayTag flux), Is.True);
+      Assert.That(registry.TryRegisterSerializedTag(k_RetiredName, out GameplayTag retired), Is.True);
+      GameplayTag parent = new(k_MarkName);
+      GameplayTag status = new(k_StatusName);
+      GameplayTag fixtureRoot = new("Tests.GameplayTags");
+      GameplayTag root = new("Tests");
 
       Assert.That(registry.TryGetRegistered(flux, out _), Is.False);
       Assert.That(registry.TryGetMetadata(flux, out GameplayTagMetadata recoveredMetadata), Is.True);
       Assert.That(recoveredMetadata.IsExplicit, Is.False);
       Assert.That(recoveredMetadata.Parent, Is.EqualTo(parent));
-      Assert.That(registry.GetTemporaryTags(), Is.EqualTo(new[] { root, parent, flux, retired }));
+      Assert.That(registry.GetTemporaryTags(), Is.EqualTo(new[] { root, fixtureRoot, status, parent, flux, retired }));
 
       registry.RegisterSourceTag(flux.Name, "Declared by a source.");
 
-      Assert.That(registry.GetRegisteredTags(), Is.EqualTo(new[] { root, parent, flux }));
+      Assert.That(registry.GetRegisteredTags(), Is.EqualTo(new[] { root, fixtureRoot, status, parent, flux }));
       Assert.That(registry.GetTemporaryTags(), Is.EqualTo(new[] { retired }));
       Assert.That(registry.TryGetRegistered(flux, out GameplayTagMetadata confirmedMetadata), Is.True);
       Assert.That(confirmedMetadata.IsExplicit, Is.True);
@@ -80,7 +87,7 @@ public sealed class GameplayTagRegistryTests
    public void MultipleSourcesKeepDistinctCommentsInDeclarationOrder()
    {
       GameplayTagRegistry registry = new();
-      GameplayTag flux = new("Status.Mark.Flux");
+      GameplayTag flux = new(k_FluxName);
 
       registry.RegisterSourceTag(flux.Name, "Comment from the library.");
       registry.RegisterSourceTag(flux.Name, "Comment from C#.");
@@ -90,7 +97,7 @@ public sealed class GameplayTagRegistryTests
 
       Assert.That(registry.TryGetRegistered(flux, out GameplayTagMetadata metadata), Is.True);
       Assert.That(metadata.Comments, Is.EqualTo(new[] { "Comment from the library.", "Comment from C#." }));
-      Assert.That(registry.TryGetRegistered(new GameplayTag("Status.Mark"), out GameplayTagMetadata parent), Is.True);
+      Assert.That(registry.TryGetRegistered(new GameplayTag(k_MarkName), out GameplayTagMetadata parent), Is.True);
       Assert.That(parent.Comments, Is.Empty);
       Assert.That(parent.Children.Count, Is.EqualTo(1));
    }
@@ -99,35 +106,37 @@ public sealed class GameplayTagRegistryTests
    public void ResetPreservesOnlyNamesObservedDuringDeserialization()
    {
       GameplayTagRegistry registry = new();
-      registry.RegisterSourceTag("Status.Mark.Flux", "Source comment.");
-      registry.RegisterSourceTag("State.SourceOnly", null);
-      Assert.That(registry.TryRegisterSerializedTag("Status.Mark.Flux", out GameplayTag flux), Is.True);
-      Assert.That(registry.TryRegisterSerializedTag("Status.Mark.Retired", out GameplayTag retired), Is.True);
+      registry.RegisterSourceTag(k_FluxName, "Source comment.");
+      registry.RegisterSourceTag(k_SourceOnlyName, null);
+      Assert.That(registry.TryRegisterSerializedTag(k_FluxName, out GameplayTag flux), Is.True);
+      Assert.That(registry.TryRegisterSerializedTag(k_RetiredName, out GameplayTag retired), Is.True);
 
       registry.ResetSources();
 
       Assert.That(registry.GetRegisteredTags(), Is.Empty);
       Assert.That(registry.GetTemporaryTags(), Is.EqualTo(new[]
       {
-         new GameplayTag("Status"),
-         new GameplayTag("Status.Mark"),
+         new GameplayTag("Tests"),
+         new GameplayTag("Tests.GameplayTags"),
+         new GameplayTag(k_StatusName),
+         new GameplayTag(k_MarkName),
          flux,
          retired
       }));
-      Assert.That(registry.TryGetMetadata(new GameplayTag("State.SourceOnly"), out _), Is.False);
+      Assert.That(registry.TryGetMetadata(new GameplayTag(k_SourceOnlyName), out _), Is.False);
       Assert.That(registry.TryGetMetadata(flux, out GameplayTagMetadata metadata), Is.True);
       Assert.That(metadata.IsExplicit, Is.False);
       Assert.That(metadata.Comments, Is.Empty);
-      Assert.That(metadata.Parent, Is.EqualTo(new GameplayTag("Status.Mark")));
+      Assert.That(metadata.Parent, Is.EqualTo(new GameplayTag(k_MarkName)));
    }
 
    [Test]
    public void RegistryAndChildSnapshotsRemainIndependentOfLaterRegistrations()
    {
       GameplayTagRegistry registry = new();
-      GameplayTag flora = new("Status.Mark.Flora");
-      GameplayTag flux = new("Status.Mark.Flux");
-      GameplayTag parent = new("Status.Mark");
+      GameplayTag flora = new(k_FloraName);
+      GameplayTag flux = new(k_FluxName);
+      GameplayTag parent = new(k_MarkName);
       registry.RegisterSourceTag(flux.Name, null);
       GameplayTag[] before = registry.GetRegisteredTags();
       Assert.That(registry.TryGetRegistered(parent, out GameplayTagMetadata metadata), Is.True);
@@ -135,7 +144,14 @@ public sealed class GameplayTagRegistryTests
 
       registry.RegisterSourceTag(flora.Name, null);
 
-      Assert.That(before, Is.EqualTo(new[] { new GameplayTag("Status"), parent, flux }));
+      Assert.That(before, Is.EqualTo(new[]
+      {
+         new GameplayTag("Tests"),
+         new GameplayTag("Tests.GameplayTags"),
+         new GameplayTag(k_StatusName),
+         parent,
+         flux
+      }));
       Assert.That(oldChildren.Count, Is.EqualTo(1));
       Assert.That(oldChildren[0], Is.EqualTo(flux));
       Assert.That(metadata.Children.Count, Is.EqualTo(2));
@@ -146,10 +162,10 @@ public sealed class GameplayTagRegistryTests
    [Test]
    public void TagEqualityUsesExactNamesAndSupportsHashedCollections()
    {
-      GameplayTag flux = new("Status.Mark.Flux");
-      GameplayTag sameName = new("Status.Mark.Flux");
-      GameplayTag differentCase = new("Status.Mark.flux");
-      GameplayTag parent = new("Status.Mark");
+      GameplayTag flux = new(k_FluxName);
+      GameplayTag sameName = new(k_FluxName);
+      GameplayTag differentCase = new(k_MarkName + ".flux");
+      GameplayTag parent = new(k_MarkName);
       HashSet<GameplayTag> tags = new() { flux };
 
       Assert.That(flux == sameName, Is.True);

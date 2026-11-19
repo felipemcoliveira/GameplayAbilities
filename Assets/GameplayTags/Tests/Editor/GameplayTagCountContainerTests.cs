@@ -7,9 +7,9 @@ public sealed class GameplayTagCountContainerTests
    [Test]
    public void CountsCombineDirectStacksAndDifferentDescendants()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
-      GameplayTag suddenDeath = GameplayTagManager.GetTag("Status.Buff.SuddenDeath");
-      GameplayTag status = GameplayTagManager.GetTag("Status");
+      GameplayTag flux = GameplayTagTestTags.Flux;
+      GameplayTag suddenDeath = GameplayTagTestTags.SuddenDeath;
+      GameplayTag status = GameplayTagTestTags.Status;
       GameplayTagCountContainer container = new();
 
       Assert.That(container.Add(flux), Is.True);
@@ -45,7 +45,7 @@ public sealed class GameplayTagCountContainerTests
    [Test]
    public void AncestorListenersCanObserveEveryChangeOrOnlyZeroCrossings()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag flux = GameplayTagTestTags.Flux;
       GameplayTag mark = flux.Parent;
       GameplayTagCountContainer container = new();
       List<int> countChanges = new();
@@ -78,7 +78,7 @@ public sealed class GameplayTagCountContainerTests
    [Test]
    public void ClearReportsZeroForBothEventTypesAfterAllCountsAreCleared()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag flux = GameplayTagTestTags.Flux;
       GameplayTag mark = flux.Parent;
       GameplayTagCountContainer container = new();
       List<int> childCounts = new();
@@ -111,7 +111,7 @@ public sealed class GameplayTagCountContainerTests
    [Test]
    public void DuplicateDelegatesHaveIndependentIdempotentSubscriptions()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag flux = GameplayTagTestTags.Flux;
       GameplayTagCountContainer container = new();
       List<int> counts = new();
       Action<GameplayTag, int> listener = (_, count) => counts.Add(count);
@@ -136,7 +136,7 @@ public sealed class GameplayTagCountContainerTests
    [Test]
    public void ReentrantMutationQueuesNotificationsAfterAlreadyQueuedChanges()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag flux = GameplayTagTestTags.Flux;
       GameplayTag mark = flux.Parent;
       GameplayTagCountContainer container = new();
       List<int> ancestorCounts = new();
@@ -164,7 +164,7 @@ public sealed class GameplayTagCountContainerTests
    [Test]
    public void DisposingAnotherListenerBeforeItsNotificationSkipsThatCall()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag flux = GameplayTagTestTags.Flux;
       GameplayTagCountContainer container = new();
       int disposedListenerCalls = 0;
       IDisposable later = null;
@@ -182,7 +182,7 @@ public sealed class GameplayTagCountContainerTests
    [Test]
    public void ThrowingListenerDoesNotBlockOtherListenersOrLaterMutations()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag flux = GameplayTagTestTags.Flux;
       GameplayTagCountContainer container = new();
       List<int> counts = new();
       InvalidOperationException failure = new("Listener failed.");
@@ -205,7 +205,7 @@ public sealed class GameplayTagCountContainerTests
    [Test]
    public void ReadOnlyQueriesInteroperateWithRegularContainers()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag flux = GameplayTagTestTags.Flux;
       GameplayTagCountContainer storage = new();
       GameplayTagContainer required = new();
       IReadOnlyGameplayTagContainer active = storage;

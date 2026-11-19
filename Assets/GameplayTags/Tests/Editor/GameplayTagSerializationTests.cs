@@ -9,7 +9,7 @@ public sealed class GameplayTagSerializationTests
    [Test]
    public void StoredTagRestoresCachedHash()
    {
-      GameplayTag original = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag original = GameplayTagTestTags.Flux;
       string json = JsonUtility.ToJson(original);
       GameplayTag restored = JsonUtility.FromJson<GameplayTag>(json);
       Dictionary<GameplayTag, int> lookup = new() { [original] = 1 };
@@ -23,7 +23,7 @@ public sealed class GameplayTagSerializationTests
    [Test]
    public void ContainerFieldRoundTripStoresExplicitTagsOnly()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
+      GameplayTag flux = GameplayTagTestTags.Flux;
       GameplayTag mark = flux.Parent;
       StoredTarget source = new();
       source.Tags.Add(flux);
@@ -31,7 +31,8 @@ public sealed class GameplayTagSerializationTests
       string json = JsonUtility.ToJson(source);
       StoredTarget restored = JsonUtility.FromJson<StoredTarget>(json);
 
-      Assert.That(json, Does.Contain("\"Status.Mark.Flux\"").And.Not.Contain("\"Status.Mark\""));
+      Assert.That(json, Does.Contain("\"" + GameplayTagTestTags.k_FluxName + "\"")
+         .And.Not.Contain("\"" + GameplayTagTestTags.k_MarkName + "\""));
       Assert.That(json, Does.Not.Contain("m_ExplicitIndices").And.Not.Contain("m_InheritedCounts"));
       Assert.That(restored.Tags.Count, Is.EqualTo(1));
       Assert.That(restored.Tags.ContainsExact(flux), Is.True);

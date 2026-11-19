@@ -80,7 +80,7 @@ public static class GameplayTagManager
    }
 
    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-   private static void Initialize()
+   internal static void Initialize()
    {
       if (s_SourcesLoaded)
          return;

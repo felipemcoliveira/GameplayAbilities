@@ -1,0 +1,9 @@
+{
+    "name": "GameplayTags.Editor",
+    "references": [
+        "GameplayTags"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ]
+}

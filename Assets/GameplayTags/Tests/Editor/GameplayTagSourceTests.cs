@@ -1,38 +1,33 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using UnityEditor;
 
 public sealed class GameplayTagSourceTests
 {
-   [NativeGameplayTag("Tests.Native.Source.Field")]
-   private static GameplayTag s_Field;
-
-   [NativeGameplayTag("Tests.Native.Source.Property")]
-   private static GameplayTag NativeProperty { get; set; }
-
    [Test]
-   public void LibraryRegistersFluxAndItsImplicitAncestors()
+   public void NativeSourceRegistersFluxAndItsImplicitAncestors()
    {
-      GameplayTag flux = GameplayTagManager.GetTag("Status.Mark.Flux");
-      GameplayTag mark = GameplayTagManager.GetTag("Status.Mark");
-      GameplayTag status = GameplayTagManager.GetTag("Status");
+      GameplayTag flux = GameplayTagTestTags.Flux;
+      GameplayTag mark = GameplayTagTestTags.Mark;
+      GameplayTag status = GameplayTagTestTags.Status;
 
+      Assert.That(flux.Name, Is.EqualTo(GameplayTagTestTags.k_FluxName));
+      Assert.That(mark.Name, Is.EqualTo(GameplayTagTestTags.k_MarkName));
+      Assert.That(status.Name, Is.EqualTo(GameplayTagTestTags.k_StatusName));
       Assert.That(flux.Parent, Is.EqualTo(mark));
       Assert.That(mark.Parent, Is.EqualTo(status));
       Assert.That(ContainsChild(mark.Children, flux), Is.True);
       Assert.That(GameplayTagManager.GetRegisteredTags(), Does.Contain(mark));
-      Assert.That(GameplayTagManager.GetMetadata(flux).Comments,
-         Does.Contain("Marks a target for Ryze's Overload interactions."));
+      Assert.That(GameplayTagManager.GetMetadata(mark).IsExplicit, Is.False);
+      Assert.That(GameplayTagManager.GetMetadata(flux).Comments, Does.Contain(GameplayTagTestTags.k_FluxComment));
    }
 
    [Test]
-   public void NativeSourceFillsStaticFieldAndProperty()
+   public void EditorBootstrapFillsNativeFieldAndPropertyWithoutPlayMode()
    {
-      GameplayTag field = GameplayTagManager.GetTag("Tests.Native.Source.Field");
-      GameplayTag property = GameplayTagManager.GetTag("Tests.Native.Source.Property");
-
-      Assert.That(s_Field, Is.EqualTo(field));
-      Assert.That(NativeProperty, Is.EqualTo(property));
-      Assert.That(field.Parent, Is.EqualTo(property.Parent));
+      Assert.That(EditorApplication.isPlaying, Is.False);
+      Assert.That(GameplayTagTestTags.Fire.Name, Is.EqualTo(GameplayTagTestTags.k_FireName));
+      Assert.That(GameplayTagTestTags.Flux.Name, Is.EqualTo(GameplayTagTestTags.k_FluxName));
    }
 
    [Test]
