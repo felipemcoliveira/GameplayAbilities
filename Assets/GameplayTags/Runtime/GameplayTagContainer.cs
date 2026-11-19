@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 
 /// <summary>Stores unique explicit tags and tracks the ancestors they imply.</summary>
-public sealed class GameplayTagContainer
+public sealed class GameplayTagContainer : IGameplayTagContainer
 {
    public int Count => m_ExplicitTags.Count;
 
@@ -75,26 +75,10 @@ public sealed class GameplayTagContainer
       return m_ExplicitTags[index];
    }
 
-   public bool HasAll(GameplayTagContainer required) => Match(required, exact: false, requireAll: true);
-   public bool HasAny(GameplayTagContainer required) => Match(required, exact: false, requireAll: false);
-   public bool HasAllExact(GameplayTagContainer required) => Match(required, exact: true, requireAll: true);
-   public bool HasAnyExact(GameplayTagContainer required) => Match(required, exact: true, requireAll: false);
-
-   private bool Match(GameplayTagContainer required, bool exact, bool requireAll)
-   {
-      if (required == null)
-         throw new System.ArgumentNullException(nameof(required));
-
-      for (int i = 0; i < required.Count; i++)
-      {
-         GameplayTag tag = required.GetExplicitTag(i);
-         bool matches = exact ? ContainsExact(tag) : Contains(tag);
-         if (matches != requireAll)
-            return !requireAll;
-      }
-
-      return requireAll;
-   }
+   public bool HasAll(IReadOnlyGameplayTagContainer required) => GameplayTagContainerQueries.HasAll(this, required, exact: false);
+   public bool HasAny(IReadOnlyGameplayTagContainer required) => GameplayTagContainerQueries.HasAny(this, required, exact: false);
+   public bool HasAllExact(IReadOnlyGameplayTagContainer required) => GameplayTagContainerQueries.HasAll(this, required, exact: true);
+   public bool HasAnyExact(IReadOnlyGameplayTagContainer required) => GameplayTagContainerQueries.HasAny(this, required, exact: true);
 
    public void Clear()
    {
