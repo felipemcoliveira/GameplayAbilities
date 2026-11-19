@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 public static class GameplayTagManager
 {
+   private const string k_LibraryPath = "GameplayTags";
    private static readonly GameplayTagRegistry s_Registry = new();
    private static bool s_SourcesLoaded;
 
@@ -67,17 +69,45 @@ public static class GameplayTagManager
          return s_Registry.TryRegisterSerializedTag(name, out tag);
    }
 
-   private static void Initialize()
+   [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+   private static void ResetSources()
    {
       lock (s_Registry)
       {
-         if (s_SourcesLoaded)
-            return;
+         s_Registry.ResetSources();
+         s_SourcesLoaded = false;
+      }
+   }
 
-         s_Registry.RegisterSourceTag("Damage.Fire", "Damage dealt by fire.");
-         s_Registry.RegisterSourceTag("Status.Buff.SuddenDeath", "Allows the Warrior's next Execute regardless of the target's health.");
-         s_Registry.RegisterSourceTag("Status.Mark.Flux", "Marks a target for Ryze's Overload interactions.");
-         s_SourcesLoaded = true;
+   [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+   private static void Initialize()
+   {
+      if (s_SourcesLoaded)
+         return;
+
+      // Loading an asset can invoke serialization callbacks on another thread.
+      GameplayTagLibrary[] libraries = Resources.LoadAll<GameplayTagLibrary>(k_LibraryPath);
+      lock (s_Registry)
+      {
+         try
+         {
+            RegisterLibraries(libraries);
+            s_SourcesLoaded = true;
+         }
+         catch
+         {
+            s_Registry.ResetSources();
+            throw;
+         }
+      }
+   }
+
+   private static void RegisterLibraries(GameplayTagLibrary[] libraries)
+   {
+      foreach (GameplayTagLibrary library in libraries)
+      {
+         foreach (GameplayTagLibrary.Entry entry in library.Entries)
+            s_Registry.RegisterSourceTag(entry.Name, entry.Comment);
       }
    }
 }
