@@ -1,35 +1,33 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 public static class GameplayTagManager
 {
-   private static Dictionary<GameplayTag, GameplayTagMetadata> Registry
-   {
-      get
-      {
-         Initialize();
-         return s_Registry;
-      }
-   }
-
    private const string k_LibraryPath = "GameplayTags";
-   private static Dictionary<GameplayTag, GameplayTagMetadata> s_Registry;
+   private static readonly GameplayTagRegistry s_Registry = new();
+   private static bool s_SourcesLoaded;
 
    public static GameplayTag GetTag(string name)
    {
       if (TryGetTag(name, out GameplayTag tag))
          return tag;
 
-      throw new KeyNotFoundException($"Gameplay tag '{name}' is not registered.");
+      throw new KeyNotFoundException($"Gameplay tag '{name}' is not registered by a source.");
    }
 
    public static bool TryGetTag(string name, out GameplayTag tag)
    {
-      if (!string.IsNullOrEmpty(name) && Registry.TryGetValue(new GameplayTag(name), out GameplayTagMetadata metadata))
+      if (!string.IsNullOrEmpty(name))
       {
-         tag = metadata.Tag;
-         return true;
+         Initialize();
+         lock (s_Registry)
+         {
+            if (s_Registry.TryGetRegistered(new GameplayTag(name), out GameplayTagMetadata metadata))
+            {
+               tag = metadata.Tag;
+               return true;
+            }
+         }
       }
 
       tag = default;
@@ -38,104 +36,86 @@ public static class GameplayTagManager
 
    public static GameplayTagMetadata GetMetadata(GameplayTag tag)
    {
-      return Registry[tag];
+      if (TryGetMetadata(tag, out GameplayTagMetadata metadata))
+         return metadata;
+
+      throw new KeyNotFoundException($"Gameplay tag '{tag.Name}' is unknown.");
    }
 
    public static bool TryGetMetadata(GameplayTag tag, out GameplayTagMetadata metadata)
    {
-      if (!tag.IsEmpty)
-         return Registry.TryGetValue(tag, out metadata);
+      lock (s_Registry)
+         return s_Registry.TryGetMetadata(tag, out metadata);
+   }
 
-      metadata = null;
-      return false;
+   /// <summary>Copies the tags confirmed by the sources loaded so far, including their ancestors.</summary>
+   public static GameplayTag[] GetRegisteredTags()
+   {
+      lock (s_Registry)
+         return s_Registry.GetRegisteredTags();
+   }
+
+   /// <summary>Copies the recovered names that have not yet been confirmed by a source.</summary>
+   public static GameplayTag[] GetTemporaryTags()
+   {
+      lock (s_Registry)
+         return s_Registry.GetTemporaryTags();
+   }
+
+   // Unity may deserialize a container on a loading thread. This path only accesses managed data.
+   internal static bool TryRegisterSerializedTag(string name, out GameplayTag tag)
+   {
+      lock (s_Registry)
+         return s_Registry.TryRegisterSerializedTag(name, out tag);
    }
 
    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-   private static void ResetRegistry()
+   private static void ResetSources()
    {
-      s_Registry = null;
+      lock (s_Registry)
+      {
+         s_Registry.ResetSources();
+         s_SourcesLoaded = false;
+      }
    }
 
    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
    private static void Initialize()
    {
-      if (s_Registry != null)
+      if (s_SourcesLoaded)
          return;
 
-      SortedDictionary<string, string> declarations = new(StringComparer.Ordinal);
+      // Loading an asset can invoke serialization callbacks on another thread.
       IReadOnlyList<NativeGameplayTagSource.Binding> bindings = NativeGameplayTagSource.Discover();
-      foreach (NativeGameplayTagSource.Binding binding in bindings)
-         AddDeclaration(declarations, binding.Name, binding.Comment);
-
-      foreach (GameplayTagLibrary library in Resources.LoadAll<GameplayTagLibrary>(k_LibraryPath))
-      {
-         foreach (GameplayTagLibrary.Entry entry in library.Entries)
-            AddDeclaration(declarations, entry.Name, entry.Comment);
-      }
-
-      // Make the complete hierarchy available if an annotated setter queries the manager.
-      s_Registry = BuildHierarchy(declarations);
+      GameplayTagLibrary[] libraries = Resources.LoadAll<GameplayTagLibrary>(k_LibraryPath);
       try
       {
+         lock (s_Registry)
+         {
+            RegisterLibraries(libraries);
+            foreach (NativeGameplayTagSource.Binding binding in bindings)
+               s_Registry.RegisterSourceTag(binding.Name, binding.Comment);
+
+            s_SourcesLoaded = true;
+         }
+
+         // Static setters can call the manager. Publish the complete registry before assigning.
          foreach (NativeGameplayTagSource.Binding binding in bindings)
             binding.Assign(GetTag(binding.Name));
       }
       catch
       {
-         s_Registry = null;
+         ResetSources();
          throw;
       }
    }
 
-   private static Dictionary<GameplayTag, GameplayTagMetadata> BuildHierarchy(SortedDictionary<string, string> declarations)
+   private static void RegisterLibraries(GameplayTagLibrary[] libraries)
    {
-      Dictionary<GameplayTag, GameplayTagMetadata> registry = new(declarations.Count);
-      foreach (KeyValuePair<string, string> declaration in declarations)
+      foreach (GameplayTagLibrary library in libraries)
       {
-         GameplayTag tag = new(declaration.Key);
-         int lastDot = tag.Name.LastIndexOf('.');
-         GameplayTag parent = lastDot < 0 ? default : new GameplayTag(tag.Name[..lastDot]);
-         GameplayTagMetadata metadata = new(tag, parent, declaration.Value);
-         registry.Add(tag, metadata);
-
-         // Ordinal order puts every parent before its children.
-         if (!parent.IsEmpty)
-            registry[parent].AddChild(tag);
-      }
-
-      return registry;
-   }
-
-   private static void AddDeclaration(SortedDictionary<string, string> declarations, string name, string comment)
-   {
-      if (string.IsNullOrEmpty(name) || name[0] == '.' || name[^1] == '.' || name.Contains(".."))
-         throw new ArgumentException($"Gameplay tag '{name}' must contain nonempty segments separated by dots.", nameof(name));
-
-      foreach (char character in name)
-      {
-         if (char.IsWhiteSpace(character))
-            throw new ArgumentException($"Gameplay tag '{name}' must not contain whitespace.", nameof(name));
-      }
-
-      comment ??= string.Empty;
-      if (!declarations.TryGetValue(name, out string existingComment) || string.IsNullOrEmpty(existingComment))
-      {
-         declarations[name] = comment;
-      }
-      else if (comment.Length > 0 && !string.Equals(comment, existingComment, StringComparison.Ordinal))
-      {
-         throw new InvalidOperationException($"Gameplay tag '{name}' has conflicting developer comments.");
-      }
-
-      int dot = name.LastIndexOf('.');
-      while (dot >= 0)
-      {
-         name = name[..dot];
-         if (declarations.ContainsKey(name))
-            break;
-
-         declarations.Add(name, null);
-         dot = name.LastIndexOf('.');
+         foreach (GameplayTagLibrary.Entry entry in library.Entries)
+            s_Registry.RegisterSourceTag(entry.Name, entry.Comment);
       }
    }
 }

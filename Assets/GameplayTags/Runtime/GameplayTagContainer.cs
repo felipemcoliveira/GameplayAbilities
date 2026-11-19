@@ -1,16 +1,28 @@
+using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 /// <summary>Stores unique explicit tags and tracks the ancestors they imply.</summary>
-public sealed class GameplayTagContainer : IGameplayTagContainer
+[Serializable]
+public sealed class GameplayTagContainer : IGameplayTagContainer, ISerializationCallbackReceiver
 {
    public int Count => m_ExplicitTags.Count;
 
-   private readonly List<GameplayTag> m_ExplicitTags;
-   private readonly Dictionary<GameplayTag, int> m_ExplicitIndices;
-   private readonly Dictionary<GameplayTag, int> m_InheritedCounts;
+   [SerializeField]
+   private List<GameplayTag> m_ExplicitTags;
+
+   [NonSerialized]
+   private Dictionary<GameplayTag, int> m_ExplicitIndices;
+
+   [NonSerialized]
+   private Dictionary<GameplayTag, int> m_InheritedCounts;
+
+   public GameplayTagContainer() : this(0)
+   {
+   }
 
    /// <summary>Reserves initial storage for explicit tags and ancestor counts.</summary>
-   public GameplayTagContainer(int initialCapacity = 0)
+   public GameplayTagContainer(int initialCapacity)
    {
       m_ExplicitTags = new List<GameplayTag>(initialCapacity);
       m_ExplicitIndices = new Dictionary<GameplayTag, int>(initialCapacity);
@@ -24,12 +36,7 @@ public sealed class GameplayTagContainer : IGameplayTagContainer
          return false;
 
       m_ExplicitTags.Add(tag);
-      for (GameplayTag parent = tag.Parent; !parent.IsEmpty; parent = parent.Parent)
-      {
-         m_InheritedCounts.TryGetValue(parent, out int count);
-         m_InheritedCounts[parent] = count + 1;
-      }
-
+      AddInheritedTags(tag);
       return true;
    }
 
@@ -85,5 +92,43 @@ public sealed class GameplayTagContainer : IGameplayTagContainer
       m_ExplicitTags.Clear();
       m_ExplicitIndices.Clear();
       m_InheritedCounts.Clear();
+   }
+
+   void ISerializationCallbackReceiver.OnBeforeSerialize()
+   {
+   }
+
+   void ISerializationCallbackReceiver.OnAfterDeserialize()
+   {
+      m_ExplicitTags ??= new();
+      m_ExplicitIndices ??= new(m_ExplicitTags.Count);
+      m_InheritedCounts ??= new(m_ExplicitTags.Count);
+      m_ExplicitIndices.Clear();
+      m_InheritedCounts.Clear();
+
+      int writeIndex = 0;
+      for (int readIndex = 0; readIndex < m_ExplicitTags.Count; readIndex++)
+      {
+         if (!GameplayTagManager.TryRegisterSerializedTag(m_ExplicitTags[readIndex].Name, out GameplayTag tag))
+            continue;
+
+         if (!m_ExplicitIndices.TryAdd(tag, writeIndex))
+            continue;
+
+         // Keep the rebuilt hash even if Unity has not called the nested tag's callback yet.
+         m_ExplicitTags[writeIndex++] = tag;
+         AddInheritedTags(tag);
+      }
+
+      m_ExplicitTags.RemoveRange(writeIndex, m_ExplicitTags.Count - writeIndex);
+   }
+
+   private void AddInheritedTags(GameplayTag tag)
+   {
+      for (GameplayTag parent = tag.Parent; !parent.IsEmpty; parent = parent.Parent)
+      {
+         m_InheritedCounts.TryGetValue(parent, out int count);
+         m_InheritedCounts[parent] = count + 1;
+      }
    }
 }

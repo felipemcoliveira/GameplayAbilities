@@ -1,50 +1,21 @@
 using System;
-using System.Collections.Generic;
 
-/// <summary>A read-only view that supports allocation-free indexing and direct foreach.</summary>
+/// <summary>A read-only snapshot of a tag's direct children.</summary>
 public readonly struct GameplayTagChildren
 {
-   public int Count => m_Children?.Count ?? 0;
+   public int Count => m_Children?.Length ?? 0;
 
-   public GameplayTag this[int index]
-   {
-      get
-      {
-         if (m_Children == null)
-            throw new ArgumentOutOfRangeException(nameof(index));
+   public GameplayTag this[int index] => new ReadOnlySpan<GameplayTag>(m_Children)[index];
 
-         return m_Children[index];
-      }
-   }
+   private readonly GameplayTag[] m_Children;
 
-   private readonly List<GameplayTag> m_Children;
-
-   internal GameplayTagChildren(List<GameplayTag> children)
+   internal GameplayTagChildren(GameplayTag[] children)
    {
       m_Children = children;
    }
 
-   public Enumerator GetEnumerator()
+   public ReadOnlySpan<GameplayTag>.Enumerator GetEnumerator()
    {
-      return new Enumerator(m_Children);
-   }
-
-   public struct Enumerator
-   {
-      public readonly GameplayTag Current => m_Enumerator.Current;
-
-      private List<GameplayTag>.Enumerator m_Enumerator;
-      private readonly bool m_HasList;
-
-      internal Enumerator(List<GameplayTag> children)
-      {
-         m_Enumerator = children?.GetEnumerator() ?? default;
-         m_HasList = children != null;
-      }
-
-      public bool MoveNext()
-      {
-         return m_HasList && m_Enumerator.MoveNext();
-      }
+      return new ReadOnlySpan<GameplayTag>(m_Children).GetEnumerator();
    }
 }
