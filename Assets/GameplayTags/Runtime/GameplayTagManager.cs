@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 public static class GameplayTagManager
 {
-   private static readonly Dictionary<GameplayTag, GameplayTagMetadata> s_Registry = BuildRegistry();
+   private static Dictionary<GameplayTag, GameplayTagMetadata> Registry => s_Registry ??= BuildRegistry();
+
+   private const string k_LibraryPath = "GameplayTags";
+   private static Dictionary<GameplayTag, GameplayTagMetadata> s_Registry;
 
    public static GameplayTag GetTag(string name)
    {
@@ -15,7 +19,7 @@ public static class GameplayTagManager
 
    public static bool TryGetTag(string name, out GameplayTag tag)
    {
-      if (!string.IsNullOrEmpty(name) && s_Registry.TryGetValue(new GameplayTag(name), out GameplayTagMetadata metadata))
+      if (!string.IsNullOrEmpty(name) && Registry.TryGetValue(new GameplayTag(name), out GameplayTagMetadata metadata))
       {
          tag = metadata.Tag;
          return true;
@@ -27,16 +31,29 @@ public static class GameplayTagManager
 
    public static GameplayTagMetadata GetMetadata(GameplayTag tag)
    {
-      return s_Registry[tag];
+      return Registry[tag];
+   }
+
+   [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+   private static void ResetRegistry()
+   {
+      s_Registry = null;
    }
 
    private static Dictionary<GameplayTag, GameplayTagMetadata> BuildRegistry()
    {
       SortedDictionary<string, string> declarations = new(StringComparer.Ordinal);
-      AddDeclaration(declarations, "Damage.Fire", "Damage dealt by fire.");
-      AddDeclaration(declarations, "Status.Buff.SuddenDeath", "Allows the Warrior's next Execute regardless of the target's health.");
-      AddDeclaration(declarations, "Status.Mark.Flux", "Marks a target for Ryze's Overload interactions.");
+      foreach (GameplayTagLibrary library in Resources.LoadAll<GameplayTagLibrary>(k_LibraryPath))
+      {
+         foreach (GameplayTagLibrary.Entry entry in library.Entries)
+            AddDeclaration(declarations, entry.Name, entry.Comment);
+      }
 
+      return BuildHierarchy(declarations);
+   }
+
+   private static Dictionary<GameplayTag, GameplayTagMetadata> BuildHierarchy(SortedDictionary<string, string> declarations)
+   {
       Dictionary<GameplayTag, GameplayTagMetadata> registry = new(declarations.Count);
       foreach (KeyValuePair<string, string> declaration in declarations)
       {
