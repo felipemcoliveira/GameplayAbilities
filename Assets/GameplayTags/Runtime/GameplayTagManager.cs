@@ -86,19 +86,27 @@ public static class GameplayTagManager
          return;
 
       // Loading an asset can invoke serialization callbacks on another thread.
+      IReadOnlyList<NativeGameplayTagSource.Binding> bindings = NativeGameplayTagSource.Discover();
       GameplayTagLibrary[] libraries = Resources.LoadAll<GameplayTagLibrary>(k_LibraryPath);
-      lock (s_Registry)
+      try
       {
-         try
+         lock (s_Registry)
          {
             RegisterLibraries(libraries);
+            foreach (NativeGameplayTagSource.Binding binding in bindings)
+               s_Registry.RegisterSourceTag(binding.Name, binding.Comment);
+
             s_SourcesLoaded = true;
          }
-         catch
-         {
-            s_Registry.ResetSources();
-            throw;
-         }
+
+         // Static setters can call the manager. Publish the complete registry before assigning.
+         foreach (NativeGameplayTagSource.Binding binding in bindings)
+            binding.Assign(GetTag(binding.Name));
+      }
+      catch
+      {
+         ResetSources();
+         throw;
       }
    }
 
