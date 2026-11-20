@@ -8,9 +8,9 @@ Open the repository root in Unity **6000.4.10f1**. The project uses **URP 17.4.0
 
 ## Edit gameplay tags
 
-Open **Window → Gameplay Tags → Catalog** to search the hierarchy, read developer comments, and inspect unresolved names recovered from loaded data. The **Libraries** tab lets you create and edit libraries under a `Resources/GameplayTags` folder.
+Open **Window → Gameplay Tags → Libraries** to create libraries under a `Resources/GameplayTags` folder and edit tag declarations and comments in a searchable tree. The **Catalog** shows registered and unresolved names recovered from loaded data.
 
-Use a serialized `GameplayTag` or `GameplayTagContainer` field on a component or asset to pick registered tags in the Inspector. A container stores the explicit selections and derives their inherited parent tags.
+Use the tag field or the **+** button on a serialized `GameplayTagContainer` to open the Inspector's searchable picker. A container stores explicit selections and derives inherited parent tags, which the picker shows with mixed checkboxes.
 
 ## Run the gameplay tag tests
 

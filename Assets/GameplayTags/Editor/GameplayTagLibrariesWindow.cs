@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.IMGUI.Controls;
 using UnityEngine;
 
 public sealed class GameplayTagLibrariesWindow : EditorWindow
 {
    private const string k_DefaultLibraryFolder = "Assets/GameplayTags/Resources/GameplayTags";
+   private const float k_TabsHeight = 22;
+   private const float k_HeaderHeight = 76;
+   private const float k_FooterHeight = 27;
+   private const float k_SidebarWidth = 208;
    private static readonly string[] s_Tabs = { "Catalog", "Libraries" };
 
    [SerializeField]
@@ -22,10 +27,12 @@ public sealed class GameplayTagLibrariesWindow : EditorWindow
    private GameplayTagLibrary[] m_Libraries = Array.Empty<GameplayTagLibrary>();
    private Editor m_LibraryEditor;
    private string m_TagSearch = string.Empty;
+   private string m_LibrarySearch = string.Empty;
    private Vector2 m_TagScroll;
    private Vector2 m_DetailScroll;
    private Vector2 m_LibraryScroll;
-   private Vector2 m_LibraryEditorScroll;
+   private SearchField m_LibrarySearchField;
+   private GUIStyle m_TitleStyle;
 
    [MenuItem("Window/Gameplay Tags/Catalog")]
    public static void ShowWindow()
@@ -34,7 +41,7 @@ public sealed class GameplayTagLibrariesWindow : EditorWindow
    }
 
    [MenuItem("Window/Gameplay Tags/Libraries")]
-   private static void ShowLibraries()
+   internal static void ShowLibraries()
    {
       Open(1);
    }
@@ -48,7 +55,7 @@ public sealed class GameplayTagLibrariesWindow : EditorWindow
 
    private void OnEnable()
    {
-      minSize = new Vector2(620, 360);
+      minSize = new Vector2(640, 400);
       GameplayTagEditorCatalog.Changed += RefreshSnapshots;
       RefreshSnapshots();
    }
@@ -69,7 +76,8 @@ public sealed class GameplayTagLibrariesWindow : EditorWindow
    {
       m_Confirmed = CreateRows(GameplayTagEditorCatalog.GetTags(), temporary: false);
       m_Temporary = CreateRows(GameplayTagEditorCatalog.GetUnresolvedTags(), temporary: true);
-      m_Libraries = GameplayTagEditorCatalog.GetLibraries();
+      m_Libraries = Array.FindAll(GameplayTagEditorCatalog.GetLibraries(), library => library != null);
+      Array.Sort(m_Libraries, (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.name, right.name));
       if (m_Library == null && m_Libraries.Length > 0)
          m_Library = m_Libraries[0];
       if (FindSelectedTag() == null)
@@ -96,28 +104,30 @@ public sealed class GameplayTagLibrariesWindow : EditorWindow
 
    private void OnGUI()
    {
-      using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
+      Rect toolbar = new(0, 0, position.width, k_TabsHeight);
+      GUI.Box(toolbar, GUIContent.none, EditorStyles.toolbar);
+      int tab = GUI.Toolbar(new Rect(2, 1, 176, k_TabsHeight - 2), m_Tab, s_Tabs, EditorStyles.toolbarButton);
+      if (tab != m_Tab)
       {
-         int tab = GUILayout.Toolbar(m_Tab, s_Tabs, EditorStyles.toolbarButton, GUILayout.Width(176));
-         if (tab != m_Tab)
-         {
-            m_Tab = tab;
-            GUIUtility.ExitGUI();
-         }
-
-         GUILayout.FlexibleSpace();
-         if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(68)))
-         {
-            GameplayTagEditorCatalog.Refresh();
-            RefreshSnapshots();
-            GUIUtility.ExitGUI();
-         }
+         m_Tab = tab;
+         GUIUtility.ExitGUI();
+      }
+      if (GUI.Button(new Rect(toolbar.xMax - 70, 1, 68, k_TabsHeight - 2), "Refresh", EditorStyles.toolbarButton))
+      {
+         GameplayTagEditorCatalog.Refresh();
+         GUIUtility.ExitGUI();
       }
 
+      Rect content = new(0, toolbar.yMax, position.width, position.height - toolbar.height);
       if (m_Tab == 0)
+      {
+         using GUILayout.AreaScope area = new(content);
          DrawCatalog();
+      }
       else
-         DrawLibraries();
+      {
+         DrawLibraries(content);
+      }
    }
 
    private void DrawCatalog()
@@ -224,55 +234,127 @@ public sealed class GameplayTagLibrariesWindow : EditorWindow
          EditorGUILayout.LabelField(comment, EditorStyles.wordWrappedLabel);
    }
 
-   private void DrawLibraries()
+   private void DrawLibraries(Rect content)
    {
-      using (new EditorGUILayout.HorizontalScope(GUILayout.ExpandHeight(true)))
+      m_TitleStyle ??= new GUIStyle(EditorStyles.boldLabel)
       {
-         using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.Width(205), GUILayout.ExpandHeight(true)))
-         {
-            EditorGUILayout.LabelField($"Libraries ({m_Libraries.Length})", EditorStyles.boldLabel);
-            if (GUILayout.Button("New Library"))
-               CreateLibrary();
+         fontSize = 18,
+         alignment = TextAnchor.MiddleLeft,
+         clipping = TextClipping.Clip
+      };
 
-            using EditorGUILayout.ScrollViewScope scroll = new(m_LibraryScroll);
-            m_LibraryScroll = scroll.scrollPosition;
-            foreach (GameplayTagLibrary library in m_Libraries)
-            {
-               if (library != null && GUILayout.Toggle(m_Library == library, library.name, GUI.skin.button) && m_Library != library)
-               {
-                  m_Library = library;
-                  m_LibraryEditorScroll = Vector2.zero;
-                  GUIUtility.ExitGUI();
-               }
-            }
-         }
+      Rect header = new(content.x, content.y, content.width, k_HeaderHeight);
+      GameplayTagEditorGUI.DrawIcon(new Rect(header.x + 18, header.y + 23, 24, 24), "library");
+      GUI.Label(new Rect(header.x + 54, header.y + 13, 338, 30), "Gameplay Tag Libraries", m_TitleStyle);
+      GUI.Label(new Rect(header.x + 54, header.y + 44, 338, 18), "Organize definitions and document their purpose.", EditorStyles.miniLabel);
+      if (GameplayTagEditorGUI.Button(new Rect(header.xMax - 160, header.y + 21, 142, 34), "New Library", "add", "Create a new tag library"))
+         CreateLibrary();
+      GameplayTagEditorGUI.Separator(new Rect(header.x, header.yMax - 1, header.width, 1));
 
-         using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true)))
-         {
-            if (m_Library == null)
-            {
-               EditorGUILayout.LabelField("Create a library to declare tags and document what they mean.", EditorStyles.wordWrappedLabel);
-               return;
-            }
+      Rect body = new(content.x, header.yMax, content.width, Mathf.Max(0, content.height - k_HeaderHeight - k_FooterHeight));
+      Rect sidebar = new(body.x, body.y, k_SidebarWidth, body.height);
+      EditorGUI.DrawRect(new Rect(sidebar.xMax - 1, sidebar.y, 1, sidebar.height), GameplayTagEditorGUI.BorderColor);
+      DrawLibrarySidebar(new Rect(sidebar.x + 12, sidebar.y + 14, sidebar.width - 24, Mathf.Max(0, sidebar.height - 26)));
+      DrawSelectedLibrary(new Rect(sidebar.xMax + 18, body.y + 16, Mathf.Max(0, body.width - sidebar.width - 36), Mathf.Max(0, body.height - 32)));
 
-            using (new EditorGUILayout.HorizontalScope())
-            {
-               EditorGUILayout.LabelField(m_Library.name, EditorStyles.boldLabel);
-               if (GUILayout.Button("Select Asset", GUILayout.Width(95)))
-               {
-                  Selection.activeObject = m_Library;
-                  EditorGUIUtility.PingObject(m_Library);
-               }
-            }
+      Rect footer = new(content.x, content.yMax - k_FooterHeight, content.width, k_FooterHeight);
+      GameplayTagEditorGUI.Separator(footer);
+      GUI.Label(new Rect(footer.x + 14, footer.y + 5, footer.width - 28, 18),
+         "Parents are created automatically from dot-separated names.  Changes support Undo / Redo.", EditorStyles.miniLabel);
+   }
 
-            string path = AssetDatabase.GetAssetPath(m_Library);
-            EditorGUILayout.LabelField(new GUIContent(path, path), EditorStyles.miniLabel);
-            using EditorGUILayout.ScrollViewScope scroll = new(m_LibraryEditorScroll);
-            m_LibraryEditorScroll = scroll.scrollPosition;
-            Editor.CreateCachedEditor(m_Library, typeof(GameplayTagLibraryEditor), ref m_LibraryEditor);
-            m_LibraryEditor.OnInspectorGUI();
-         }
+   private void DrawLibrarySidebar(Rect rect)
+   {
+      using GUILayout.AreaScope area = new(rect);
+      EditorGUILayout.LabelField($"LIBRARIES  {m_Libraries.Length}", EditorStyles.miniBoldLabel);
+      GUILayout.Space(6);
+      m_LibrarySearchField ??= new SearchField();
+      string search = m_LibrarySearchField.OnGUI(EditorGUILayout.GetControlRect(), m_LibrarySearch);
+      if (search != m_LibrarySearch)
+      {
+         m_LibrarySearch = search;
+         m_LibraryScroll = Vector2.zero;
+         GUIUtility.ExitGUI();
       }
+      GUILayout.Space(10);
+
+      using EditorGUILayout.ScrollViewScope scroll = new(m_LibraryScroll);
+      m_LibraryScroll = scroll.scrollPosition;
+      bool visible = false;
+      foreach (GameplayTagLibrary library in m_Libraries)
+      {
+         if (library == null || !library.name.Contains(m_LibrarySearch, StringComparison.OrdinalIgnoreCase))
+            continue;
+
+         visible = true;
+         Rect row = EditorGUILayout.GetControlRect(false, 48);
+         bool selected = m_Library == library;
+         if (GUI.Toggle(row, selected, new GUIContent(string.Empty, AssetDatabase.GetAssetPath(library)), GUI.skin.button) && !selected)
+         {
+            m_Library = library;
+            GUI.FocusControl(null);
+            GUIUtility.ExitGUI();
+         }
+
+         GameplayTagEditorGUI.DrawIcon(new Rect(row.x + 10, row.y + 9, 16, 16), "library");
+         GUI.Label(new Rect(row.x + 32, row.y + 5, row.width - 38, 22), library.name, GameplayTagEditorGUI.ValueStyle);
+         int count = library.Entries.Count;
+         GUI.Label(new Rect(row.x + 32, row.y + 27, row.width - 38, 16),
+            count == 1 ? "1 definition" : $"{count} definitions", EditorStyles.miniLabel);
+         GUILayout.Space(3);
+      }
+
+      if (!visible)
+         EditorGUILayout.LabelField("No libraries found", EditorStyles.centeredGreyMiniLabel);
+   }
+
+   private void DrawSelectedLibrary(Rect rect)
+   {
+      using GUILayout.AreaScope area = new(rect);
+      if (m_Library == null)
+      {
+         GUILayout.Space(40);
+         EditorGUILayout.LabelField("Create your first library", EditorStyles.boldLabel);
+         EditorGUILayout.LabelField("Keep entity, item and ability tags in separate libraries.", EditorStyles.wordWrappedLabel);
+         return;
+      }
+
+      string path = AssetDatabase.GetAssetPath(m_Library);
+      Rect title = EditorGUILayout.GetControlRect(false, 36);
+      GUI.Label(new Rect(title.x, title.y, title.width - 192, title.height), m_Library.name, m_TitleStyle);
+      if (GameplayTagEditorGUI.Button(new Rect(title.xMax - 184, title.y, 144, 34), "Show in Project", "library", "Find this library in the Project window"))
+      {
+         Selection.activeObject = m_Library;
+         EditorGUIUtility.PingObject(m_Library);
+      }
+      using (new EditorGUI.DisabledScope(!path.StartsWith("Assets/", StringComparison.Ordinal)))
+      {
+         if (GameplayTagEditorGUI.IconButton(new Rect(title.xMax - 34, title.y, 34, 34), "remove", "Move library to the trash"))
+            DeleteLibrary(path);
+      }
+
+      EditorGUILayout.LabelField(new GUIContent(path, path), EditorStyles.miniLabel);
+      GUILayout.Space(12);
+      Editor.CreateCachedEditor(m_Library, typeof(GameplayTagLibraryEditor), ref m_LibraryEditor);
+      ((GameplayTagLibraryEditor)m_LibraryEditor).DrawLibrary(expand: true);
+   }
+
+   private void DeleteLibrary(string path)
+   {
+      string message = $"Move {m_Library.name} to the system trash?\n\n{path}\n\nSaved references to definitions unique to this library may become unresolved. Unity Undo cannot restore the asset.";
+      if (!EditorUtility.DisplayDialog("Delete tag library?", message, "Delete Library", "Cancel"))
+         return;
+
+      if (!AssetDatabase.MoveAssetToTrash(path))
+      {
+         EditorUtility.DisplayDialog("Library could not be deleted", $"Unity could not move this asset to the trash:\n\n{path}", "OK");
+         return;
+      }
+
+      m_Library = null;
+      GameplayTagEditorCatalog.Refresh();
+      GUI.FocusControl(null);
+      GUIUtility.ExitGUI();
    }
 
    private void CreateLibrary()
@@ -293,7 +375,6 @@ public sealed class GameplayTagLibrariesWindow : EditorWindow
       AssetDatabase.CreateAsset(library, AssetDatabase.GenerateUniqueAssetPath(path));
       m_Library = library;
       Selection.activeObject = library;
-      m_LibraryEditorScroll = Vector2.zero;
       GameplayTagEditorCatalog.Refresh();
       GUIUtility.ExitGUI();
    }

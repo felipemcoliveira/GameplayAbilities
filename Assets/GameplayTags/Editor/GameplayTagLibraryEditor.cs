@@ -1,123 +1,51 @@
-using System;
 using UnityEditor;
+using UnityEditor.IMGUI.Controls;
 using UnityEngine;
 
 [CustomEditor(typeof(GameplayTagLibrary))]
 internal sealed class GameplayTagLibraryEditor : Editor
 {
-   private string m_Search = string.Empty;
-   private string m_NewName = string.Empty;
-   private string m_Error;
+   private SearchField m_SearchField;
+   private GameplayTagLibraryTreeView m_Tree;
 
-   public override void OnInspectorGUI()
+   public override void OnInspectorGUI() => DrawLibrary(expand: false);
+
+   internal void DrawLibrary(bool expand)
    {
-      string assetPath = AssetDatabase.GetAssetPath(target);
-      if (!string.IsNullOrEmpty(assetPath) && !GameplayTagEditorCatalog.IsLibraryPath(assetPath))
+      if (!expand)
       {
-         EditorGUILayout.HelpBox("Move this asset under a Resources/GameplayTags folder to include its tags in the catalog.", MessageType.Warning);
+         Rect title = EditorGUILayout.GetControlRect(false, 26);
+         GameplayTagEditorGUI.DrawIcon(new Rect(title.x, title.center.y - 8, 16, 16), "library");
+         GUI.Label(new Rect(title.x + 22, title.y, title.width - 22, title.height),
+            new GUIContent("Gameplay Tag Library", target.name), EditorStyles.boldLabel);
+         EditorGUILayout.HelpBox("Define tags with dot-separated names. Parent tags are created automatically.", MessageType.Info);
       }
+
+      string path = AssetDatabase.GetAssetPath(target);
+      if (!string.IsNullOrEmpty(path) && !GameplayTagEditorCatalog.IsLibraryPath(path))
+         EditorGUILayout.HelpBox("Move this library under Resources/GameplayTags to register its definitions.", MessageType.Warning);
 
       serializedObject.UpdateIfRequiredOrScript();
-      SerializedProperty entries = serializedObject.FindProperty("m_Entries");
+      m_SearchField ??= new SearchField();
+      m_Tree ??= new GameplayTagLibraryTreeView(serializedObject);
+      using SerializedProperty entries = serializedObject.FindProperty("m_Entries");
 
-      string previousError = m_Error;
-      bool submittedNewEntry = DrawNewEntry(entries);
-      if (!submittedNewEntry)
-      {
-         if (!string.IsNullOrEmpty(m_Error))
-            EditorGUILayout.HelpBox(m_Error, MessageType.Warning);
+      Rect toolbar = EditorGUILayout.GetControlRect(false, 32);
+      Rect search = new(toolbar.x, toolbar.center.y - 10, Mathf.Max(40, toolbar.width - 116), 20);
+      m_Tree.searchString = m_SearchField.OnGUI(search, m_Tree.searchString);
+      if (GameplayTagEditorGUI.Button(new Rect(toolbar.xMax - 104, toolbar.y, 104, 32), "Add Tag", "add", "Add a new tag definition"))
+         m_Tree.BeginAdd();
 
-         EditorGUILayout.Space(6);
-         m_Search = EditorGUILayout.TextField("Filter entries", m_Search);
-         DrawEntries(entries);
-      }
-
-      bool changed = serializedObject.ApplyModifiedProperties();
-      if (changed)
+      EditorGUILayout.Space(4);
+      int count = entries.arraySize;
+      string countLabel = count == 1 ? "1 definition" : $"{count} definitions";
+      EditorGUILayout.LabelField($"{countLabel}  ·  Edit names and comments in the columns", EditorStyles.miniLabel);
+      EditorGUILayout.Space(4);
+      Rect table = expand
+         ? GUILayoutUtility.GetRect(0, 100000, 120, 100000, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true))
+         : GUILayoutUtility.GetRect(0, Mathf.Clamp(70 + count * 36, 180, 480), GUILayout.ExpandWidth(true));
+      m_Tree.Draw(table);
+      if (serializedObject.ApplyModifiedProperties())
          GameplayTagEditorCatalog.Refresh();
-      if (submittedNewEntry || changed || previousError != m_Error)
-         GUIUtility.ExitGUI();
-   }
-
-   private bool DrawNewEntry(SerializedProperty entries)
-   {
-      using (new EditorGUILayout.HorizontalScope())
-      {
-         m_NewName = EditorGUILayout.TextField("New tag name", m_NewName);
-         using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(m_NewName)))
-         {
-            if (!GUILayout.Button("Add Tag", GUILayout.Width(70)))
-               return false;
-         }
-      }
-
-      if (!ValidateName(m_NewName))
-         return true;
-
-      int index = entries.arraySize++;
-      SerializedProperty entry = entries.GetArrayElementAtIndex(index);
-      entry.FindPropertyRelative("m_Name").stringValue = m_NewName;
-      entry.FindPropertyRelative("m_Comment").stringValue = string.Empty;
-      m_NewName = string.Empty;
-      m_Search = string.Empty;
-      GUI.FocusControl(null);
-      return true;
-   }
-
-   private void DrawEntries(SerializedProperty entries)
-   {
-      int removeIndex = -1;
-      bool found = false;
-      for (int index = 0; index < entries.arraySize; index++)
-      {
-         SerializedProperty entry = entries.GetArrayElementAtIndex(index);
-         SerializedProperty name = entry.FindPropertyRelative("m_Name");
-         SerializedProperty comment = entry.FindPropertyRelative("m_Comment");
-         if (m_Search.Length > 0 && !name.stringValue.Contains(m_Search, StringComparison.OrdinalIgnoreCase) &&
-            !comment.stringValue.Contains(m_Search, StringComparison.OrdinalIgnoreCase))
-         {
-            continue;
-         }
-
-         found = true;
-         using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-         {
-            using (new EditorGUILayout.HorizontalScope())
-            {
-               string newName = EditorGUILayout.DelayedTextField("Tag name", name.stringValue);
-               if (newName != name.stringValue && ValidateName(newName))
-                  name.stringValue = newName;
-
-               if (GUILayout.Button("Remove", GUILayout.Width(70)))
-                  removeIndex = index;
-            }
-
-            if (!GameplayTagRegistry.IsValidName(name.stringValue))
-               EditorGUILayout.HelpBox("Enter a dot-separated name with no empty segments or whitespace.", MessageType.Warning);
-
-            comment.stringValue = EditorGUILayout.DelayedTextField("Developer comment", comment.stringValue);
-         }
-      }
-
-      if (removeIndex >= 0)
-      {
-         entries.DeleteArrayElementAtIndex(removeIndex);
-         m_Error = null;
-         GUI.FocusControl(null);
-      }
-
-      if (!found)
-      {
-         string message = entries.arraySize == 0 ? "No tags in this library." : "No entries match the filter.";
-         EditorGUILayout.LabelField(message, EditorStyles.centeredGreyMiniLabel);
-      }
-   }
-
-   private bool ValidateName(string name)
-   {
-      m_Error = GameplayTagRegistry.IsValidName(name)
-         ? null
-         : $"'{name}' must have nonempty segments separated by dots, without whitespace.";
-      return m_Error == null;
    }
 }

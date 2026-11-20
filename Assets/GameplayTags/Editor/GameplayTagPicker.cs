@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.IMGUI.Controls;
 using UnityEngine;
 
 internal sealed class GameplayTagPicker : PopupWindowContent
@@ -8,19 +9,13 @@ internal sealed class GameplayTagPicker : PopupWindowContent
    internal const string NameProperty = "m_Name";
    internal const string ExplicitTagsProperty = "m_ExplicitTags";
 
-   private const string k_SearchControl = "GameplayTagSearch";
-   private const float k_Padding = 10;
-   private const float k_RowHeight = 20;
-
    private readonly UnityEngine.Object m_Target;
    private readonly string m_PropertyPath;
    private readonly bool m_IsContainer;
-   private readonly List<GameplayTag> m_Matches = new();
    private readonly HashSet<string> m_SelectedNames = new(StringComparer.Ordinal);
    private SerializedObject m_SerializedObject;
-   private GameplayTag[] m_Tags;
-   private string m_Search = string.Empty;
-   private Vector2 m_Scroll;
+   private GameplayTagTreeView m_Tree;
+   private SearchField m_SearchField;
    private bool m_FocusSearch = true;
 
    internal GameplayTagPicker(SerializedProperty property, bool isContainer)
@@ -30,13 +25,17 @@ internal sealed class GameplayTagPicker : PopupWindowContent
       m_IsContainer = isContainer;
    }
 
-   public override Vector2 GetWindowSize() => new(400, 350);
+   public override Vector2 GetWindowSize() => new(420, 430);
 
    public override void OnOpen()
    {
       m_SerializedObject = new SerializedObject(m_Target);
+      m_Tree = new GameplayTagTreeView(m_SelectedNames.Contains, IsInherited, ToggleTag);
+      m_SearchField = new SearchField();
+      m_SearchField.downOrUpArrowKeyPressed += m_Tree.SetFocusAndEnsureSelectedItem;
       GameplayTagEditorCatalog.Changed += ReloadTags;
       ReloadTags();
+      m_Tree.ExpandAll();
    }
 
    public override void OnClose()
@@ -61,89 +60,75 @@ internal sealed class GameplayTagPicker : PopupWindowContent
          return;
       }
 
-      Rect row = new(k_Padding, k_Padding, rect.width - 2 * k_Padding, k_RowHeight);
-      GUI.Label(row, m_IsContainer ? "Edit Gameplay Tags" : "Choose a Gameplay Tag", EditorStyles.boldLabel);
-      row.y += k_RowHeight + 4;
-      GUI.SetNextControlName(k_SearchControl);
-      string search = EditorGUI.TextField(row, "Search", m_Search);
+      ReadSelection(property);
+      GameplayTagEditorGUI.DrawIcon(new Rect(12, 12, 18, 18), "tag");
+      GUI.Label(new Rect(38, 8, rect.width - 50, 22), m_IsContainer ? "Gameplay Tags" : "Gameplay Tag", EditorStyles.boldLabel);
+      GUI.Label(new Rect(12, 34, rect.width - 24, 18),
+         m_IsContainer ? $"{m_SelectedNames.Count} selected explicitly" : "Choose one tag", EditorStyles.miniLabel);
+      m_Tree.searchString = m_SearchField.OnGUI(new Rect(12, 60, rect.width - 24, 20), m_Tree.searchString);
       if (m_FocusSearch && Event.current.type == EventType.Repaint)
       {
-         EditorGUI.FocusTextInControl(k_SearchControl);
+         m_SearchField.SetFocus();
          m_FocusSearch = false;
       }
-      if (m_Search != search)
+
+      GameplayTagEditorGUI.Separator(new Rect(0, 90, rect.width, 1));
+      if (m_Tree.TagCount == 0)
       {
-         m_Search = search;
-         m_Scroll = Vector2.zero;
-         FilterTags();
+         EditorGUI.HelpBox(new Rect(12, 104, rect.width - 24, 60),
+            "No tags defined. Open Libraries to create your first tags.", MessageType.Info);
+      }
+      else
+         m_Tree.OnGUI(new Rect(4, 96, rect.width - 8, rect.height - 194));
+
+      DrawFooter(rect, property);
+   }
+
+   private void DrawFooter(Rect rect, SerializedProperty property)
+   {
+      GameplayTagEditorGUI.Separator(new Rect(0, rect.height - 92, rect.width, 1));
+      using (new EditorGUI.DisabledScope(true))
+      {
+         EditorGUI.Toggle(new Rect(12, rect.height - 82, 18, 18), true);
+         GUI.Label(new Rect(34, rect.height - 82, 75, 18), "Explicit", EditorStyles.miniLabel);
+         if (m_IsContainer)
+         {
+            bool previousMixed = EditorGUI.showMixedValue;
+            EditorGUI.showMixedValue = true;
+            EditorGUI.Toggle(new Rect(112, rect.height - 82, 18, 18), false);
+            EditorGUI.showMixedValue = previousMixed;
+            GUI.Label(new Rect(134, rect.height - 82, 200, 18), "Inherited from a child", EditorStyles.miniLabel);
+         }
       }
 
-      row.y += k_RowHeight + 4;
+      using (new EditorGUI.DisabledScope(m_SelectedNames.Count == 0))
+      {
+         if (GameplayTagEditorGUI.Button(new Rect(12, rect.height - 48, 108, 36), "Clear", "clear", "Clear the selection"))
+            ClearSelection(property);
+      }
+
+      if (GameplayTagEditorGUI.Button(new Rect(rect.width - 180, rect.height - 48, 168, 36),
+            "Edit Libraries", "edit", "Edit tag definitions and comments"))
+      {
+         editorWindow.Close();
+         GameplayTagLibrariesWindow.ShowLibraries();
+      }
+   }
+
+   private void ReadSelection(SerializedProperty property)
+   {
       m_SelectedNames.Clear();
       if (!m_IsContainer)
       {
          using SerializedProperty name = property.FindPropertyRelative(NameProperty);
-         using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(name.stringValue)))
-         {
-            if (GUI.Button(row, "Clear Tag", EditorStyles.miniButton))
-            {
-               ApplyTag(property, string.Empty);
-               return;
-            }
-         }
-         m_SelectedNames.Add(name.stringValue);
-      }
-      else
-      {
-         using SerializedProperty tags = property.FindPropertyRelative(ExplicitTagsProperty);
-         for (int i = 0; i < tags.arraySize; i++)
-            m_SelectedNames.Add(GetExplicitTagName(tags, i));
-
-         GUI.Label(row, $"{m_SelectedNames.Count} selected explicitly", EditorStyles.miniLabel);
-      }
-
-      row.y += k_RowHeight + 4;
-      if (m_Matches.Count == 0)
-      {
-         GUI.Label(row, m_Tags.Length == 0 ? "No tags registered. Add a tag to a library first." : "No tags match your search.");
+         if (!string.IsNullOrEmpty(name.stringValue))
+            m_SelectedNames.Add(name.stringValue);
          return;
       }
 
-      Rect viewport = new(row.x, row.y, row.width, rect.height - row.y - k_Padding);
-      float listHeight = m_Matches.Count * k_RowHeight;
-      float listWidth = viewport.width - (listHeight > viewport.height ? GUI.skin.verticalScrollbar.fixedWidth + 4 : 0);
-      m_Scroll = GUI.BeginScrollView(viewport, m_Scroll, new Rect(0, 0, listWidth, listHeight));
-      int first = Mathf.Max(0, Mathf.FloorToInt(m_Scroll.y / k_RowHeight));
-      int end = Mathf.Min(m_Matches.Count, Mathf.CeilToInt((m_Scroll.y + viewport.height) / k_RowHeight));
-      for (int i = first; i < end; i++)
-      {
-         GameplayTag tag = m_Matches[i];
-         bool selected = m_SelectedNames.Contains(tag.Name);
-         GUIContent content = DescribeRegisteredTag(tag);
-         Rect item = new(0, i * k_RowHeight, listWidth, k_RowHeight);
-         if (m_IsContainer)
-         {
-            if (!selected && IsInherited(tag.Name))
-            {
-               content.text += " (inherited)";
-               content.tooltip += "\nInherited from a selected child. Check it to add it explicitly.";
-            }
-            bool toggled = EditorGUI.ToggleLeft(item, content, selected);
-            if (toggled != selected)
-            {
-               using SerializedProperty tags = property.FindPropertyRelative(ExplicitTagsProperty);
-               if (SetExplicitTag(tags, tag.Name, toggled))
-                  m_SerializedObject.ApplyModifiedProperties();
-            }
-         }
-         else if (GUI.Toggle(item, selected, content, EditorStyles.miniButton) != selected)
-         {
-            GUI.EndScrollView();
-            ApplyTag(property, tag.Name);
-            return;
-         }
-      }
-      GUI.EndScrollView();
+      using SerializedProperty tags = property.FindPropertyRelative(ExplicitTagsProperty);
+      for (int i = 0; i < tags.arraySize; i++)
+         m_SelectedNames.Add(GetExplicitTagName(tags, i));
    }
 
    internal static GUIContent DescribeTag(string name)
@@ -152,7 +137,7 @@ internal sealed class GameplayTagPicker : PopupWindowContent
          return new GUIContent("None", "Choose a registered gameplay tag.");
 
       if (!GameplayTagManager.TryGetTag(name, out GameplayTag tag))
-         return new GUIContent($"{name} (unregistered)", $"{name}\nNo current source registers this saved name.");
+         return new GUIContent($"{name} (missing)", $"{name}\nNo current source registers this saved name.");
 
       return DescribeRegisteredTag(tag);
    }
@@ -198,33 +183,52 @@ internal sealed class GameplayTagPicker : PopupWindowContent
       return new GUIContent(name, name);
    }
 
-   private void ApplyTag(SerializedProperty property, string name)
+   private void ToggleTag(GameplayTag tag, bool selected)
    {
-      if (string.IsNullOrEmpty(name) || GameplayTagManager.TryGetTag(name, out _))
+      using SerializedProperty property = m_SerializedObject.FindProperty(m_PropertyPath);
+      if (property == null)
+         return;
+
+      if (!m_IsContainer)
       {
+         if (selected && !GameplayTagManager.TryGetTag(tag.Name, out _))
+            return;
+
          using SerializedProperty nameProperty = property.FindPropertyRelative(NameProperty);
-         nameProperty.stringValue = name;
+         nameProperty.stringValue = selected ? tag.Name : string.Empty;
          m_SerializedObject.ApplyModifiedProperties();
+         editorWindow.Close();
+         return;
       }
-      editorWindow.Close();
+
+      using SerializedProperty tags = property.FindPropertyRelative(ExplicitTagsProperty);
+      if (SetExplicitTag(tags, tag.Name, selected))
+      {
+         m_SerializedObject.ApplyModifiedProperties();
+         editorWindow.Repaint();
+      }
+   }
+
+   private void ClearSelection(SerializedProperty property)
+   {
+      if (m_IsContainer)
+      {
+         using SerializedProperty tags = property.FindPropertyRelative(ExplicitTagsProperty);
+         tags.ClearArray();
+      }
+      else
+      {
+         using SerializedProperty name = property.FindPropertyRelative(NameProperty);
+         name.stringValue = string.Empty;
+      }
+      m_SerializedObject.ApplyModifiedProperties();
+      editorWindow.Repaint();
    }
 
    private void ReloadTags()
    {
-      m_Tags = GameplayTagEditorCatalog.GetTags();
-      FilterTags();
+      m_Tree.SetTags(GameplayTagEditorCatalog.GetTags());
       editorWindow.Repaint();
-   }
-
-   private void FilterTags()
-   {
-      m_Matches.Clear();
-      string search = m_Search.Trim();
-      foreach (GameplayTag tag in m_Tags)
-      {
-         if (tag.Name.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0)
-            m_Matches.Add(tag);
-      }
    }
 
    private bool IsInherited(string name)
