@@ -2,6 +2,7 @@
     "name": "GameplayTags.Tests",
     "references": [
         "GameplayTags",
+        "GameplayTags.Editor",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

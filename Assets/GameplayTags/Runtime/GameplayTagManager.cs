@@ -86,13 +86,30 @@ public static class GameplayTagManager
          return;
 
       // Loading an asset can invoke serialization callbacks on another thread.
-      IReadOnlyList<NativeGameplayTagSource.Binding> bindings = NativeGameplayTagSource.Discover();
       GameplayTagLibrary[] libraries = Resources.LoadAll<GameplayTagLibrary>(k_LibraryPath);
+      LoadSources(libraries, isEditorRefresh: false);
+   }
+
+#if UNITY_EDITOR
+   internal static void ReloadEditorSources(GameplayTagLibrary[] libraries)
+   {
+      LoadSources(libraries, isEditorRefresh: true);
+   }
+#endif
+
+   private static void LoadSources(GameplayTagLibrary[] libraries, bool isEditorRefresh)
+   {
+      IReadOnlyList<NativeGameplayTagSource.Binding> bindings = NativeGameplayTagSource.Discover();
       try
       {
+         bool assignNativeTags;
          lock (s_Registry)
          {
-            RegisterLibraries(libraries);
+            assignNativeTags = !s_SourcesLoaded;
+            if (isEditorRefresh)
+               s_Registry.ResetSources();
+
+            RegisterLibraries(libraries, isEditorRefresh);
             foreach (NativeGameplayTagSource.Binding binding in bindings)
                s_Registry.RegisterSourceTag(binding.Name, binding.Comment);
 
@@ -100,6 +117,9 @@ public static class GameplayTagManager
          }
 
          // Static setters can call the manager. Publish the complete registry before assigning.
+         if (!assignNativeTags)
+            return;
+
          foreach (NativeGameplayTagSource.Binding binding in bindings)
             binding.Assign(GetTag(binding.Name));
       }
@@ -110,12 +130,18 @@ public static class GameplayTagManager
       }
    }
 
-   private static void RegisterLibraries(GameplayTagLibrary[] libraries)
+   private static void RegisterLibraries(GameplayTagLibrary[] libraries, bool isEditorRefresh)
    {
       foreach (GameplayTagLibrary library in libraries)
       {
          foreach (GameplayTagLibrary.Entry entry in library.Entries)
+         {
+            // Keep the editor usable while someone repairs an invalid entry.
+            if (isEditorRefresh && !GameplayTagRegistry.IsValidName(entry.Name))
+               continue;
+
             s_Registry.RegisterSourceTag(entry.Name, entry.Comment);
+         }
       }
    }
 }
